@@ -19,40 +19,69 @@ function calendarDiff(a,b){let A=new Date(a+'T12:00:00'),B=new Date(b+'T12:00:00
 function shuffle(a){for(let i=a.length-1;i>0;i--){const r=new Uint32Array(1);crypto.getRandomValues(r);let k=r[0]%(i+1);[a[i],a[k]]=[a[k],a[i]]}return a}
 const INTERVALS=[1,3,7,14,30,60];
 function dailyCap(){return 40}
-function newCap(){return Math.max(0,Math.min(dailyCap(),Number(settings.newLimit)||0))}
+// Finish the first pass by February 1, leaving two weeks before the exam.
+const FIRST_PASS='2027-02-01';
+function isNewToday(id){
+  const x=p(id),s=sessions.morning;
+  if(s&&s.date===today()&&Array.isArray(s.newIds)&&s.newIds.includes(id))return true;
+  if(x.firstSeen)return x.firstSeen===today();
+  const h=Array.isArray(x.history)?x.history:[];
+  return h.length>0&&h[0].date===today()&&x.morningDate===today();
+}
+function newTarget(){
+  const remaining=vocab.filter(v=>p(v.id).reviews===0).length;
+  const learnedToday=vocab.filter(v=>p(v.id).morningDate===today()&&isNewToday(v.id)).length;
+  const daysLeft=Math.max(1,calendarDiff(today(),FIRST_PASS)+1);
+  return Math.min(35,Math.max(5,Math.ceil((remaining+learnedToday)/daysLeft)));
+}
+function reviewPriority(v){
+  const x=p(v.id),late=Math.max(0,calendarDiff(x.due,today()));
+  // Relative lateness captures short-interval risk; aging prevents indefinite deferral.
+  const weakness=x.afternoonRetention==='forgot'?3:(x.morningGrade==='hard'||x.morningGrade==='again'?2:0);
+  return late/Math.max(1,Number(x.interval)||1)+late/7+weakness;
+}
 function morningSelection(){
   const due=vocab.filter(v=>{const x=p(v.id);return x.reviews>0&&x.due&&x.due<=today()&&x.morningDate!==today()})
-    .sort((a,b)=>p(a.id).due.localeCompare(p(b.id).due)||(p(a.id).strength||0)-(p(b.id).strength||0)||orderNew(a,b));
-  // Already studied today counts toward the daily budget, even after an upgrade/import.
+    .sort((a,b)=>reviewPriority(b)-reviewPriority(a)||p(a.id).due.localeCompare(p(b.id).due)||orderNew(a,b));
   const completed=vocab.filter(v=>p(v.id).morningDate===today());
   const available=Math.max(0,dailyCap()-completed.length);
-  const reviews=due.slice(0,available);
-  const fresh=vocab.filter(v=>p(v.id).reviews===0).sort(orderNew).slice(0,Math.min(newCap(),available-reviews.length));
+  const doneNew=completed.filter(v=>isNewToday(v.id)).length;
+  const fresh=vocab.filter(v=>p(v.id).reviews===0).sort(orderNew).slice(0,Math.min(available,Math.max(0,newTarget()-doneNew)));
+  const reviews=due.slice(0,available-fresh.length);
   return {completed,reviews,fresh,deferred:due.length-reviews.length};
 }
 function normalizeMorning(){
   const s=sessions.morning;
   if(!s||s.date!==today())return;
   const done=[...new Set([...s.ids.slice(0,s.cursor),...vocab.filter(v=>p(v.id).morningDate===today()).map(v=>v.id)])];
+  if(s.scheduler!==18){
+    const selected=morningSelection();
+    const slots=Math.max(0,40-done.length);
+    const fresh=selected.fresh.filter(v=>!done.includes(v.id)).slice(0,slots);
+    let pending=[...fresh,...selected.reviews.filter(v=>!done.includes(v.id)).slice(0,slots-fresh.length)].map(v=>v.id);
+    if(settings.shuffle)shuffle(pending);
+    s.newIds=[...done.filter(isNewToday),...selected.fresh.map(v=>v.id)];
+    s.ids=[...done,...pending.slice(0,Math.max(0,40-done.length))];s.cursor=done.length;
+  }
   const pending=[...new Set(s.ids.slice(s.cursor))].filter(id=>!done.includes(id)&&vocab.some(v=>v.id===id));
   s.ids=[...done,...pending.slice(0,Math.max(0,dailyCap()-done.length))];s.cursor=done.length;
   s.dueCount=s.ids.filter(id=>s.newIds?!s.newIds.includes(id):p(id).reviews>0).length;
   s.newCount=s.ids.length-s.dueCount;
-  s.scheduler=17;
+  s.scheduler=18;
 }
 function getMorningSession(){
   if(sessions.morning&&sessions.morning.date===today()){normalizeMorning();save();return sessions.morning}
   const {completed,reviews,fresh}=morningSelection();
   let ids=[...reviews,...fresh].map(v=>v.id);
   if(settings.shuffle)shuffle(ids);
-  const s={date:today(),ids:[...completed.map(v=>v.id),...ids],cursor:completed.length,dueCount:completed.length+reviews.length,newCount:fresh.length,newIds:fresh.map(v=>v.id),scheduler:17};
+  const s={date:today(),ids:[...completed.map(v=>v.id),...ids],cursor:completed.length,dueCount:completed.length+reviews.length,newCount:fresh.length,newIds:fresh.map(v=>v.id),scheduler:18};
   sessions.morning=s;save();return s;
 }
 function getAfternoonSession(){
   let s=sessions.afternoon;
   if(!s||s.date!==today())s={date:today(),ids:[],cursor:0};
   const done=[...new Set(s.ids.slice(0,s.cursor))];
-  const selected=vocab.filter(v=>{let x=p(v.id);return x.morningDate===today()&&x.morningGrade&&x.afternoonDate!==today()});
+  const selected=vocab.filter(v=>{let x=p(v.id);return x.morningDate===today()&&x.morningGrade&&x.morningGrade!=='easy'&&x.afternoonDate!==today()});
   const pending=selected.map(v=>v.id).filter(id=>!done.includes(id));
   s.ids=[...done,...(settings.shuffle?shuffle(pending):pending)];s.cursor=done.length;
   sessions.afternoon=s;save();return s;
@@ -72,12 +101,13 @@ function renderPlan(){
   $('morningBreakdown').textContent=`${due} reviews + ${fresh} new · daily limit ${dailyCap()}`;
   const assigned=new Set(existing?existing.ids:selection.reviews.map(v=>v.id));
   const deferred=vocab.filter(v=>{const x=p(v.id);return x.reviews>0&&x.due&&x.due<=today()&&x.morningDate!==today()&&!assigned.has(v.id)}).length;
-  $('deferredCount').textContent=deferred?`${deferred} due words waiting · carried forward, no extra work today`:'Reviews first; new words fill the remaining places.';
+  $('deferredCount').textContent=deferred?`${deferred} due words waiting · carried forward, no extra work today`:'No overdue reviews waiting.';
+  $('newTargetInfo').textContent=`新词目标 ${newTarget()}/天（至少5个，剩余不足则全部） · 未学 ${vocab.filter(v=>p(v.id).reviews===0).length} · 首轮目标 2月1日`;
   $('morningCompleted').textContent=`${completed} / ${total} completed`;
   $('morningBar').style.width=total?`${100*completed/total}%`:'0%';
   const afternoon=sessions.afternoon&&sessions.afternoon.date===today()?sessions.afternoon:null;
   const afternoonDone=afternoon?Math.min(afternoon.cursor,afternoon.ids.length):0;
-  const afternoonTotal=afternoonDone+vocab.filter(v=>{let x=p(v.id);return x.morningDate===today()&&x.morningGrade&&x.afternoonDate!==today()}).length;
+  const afternoonTotal=afternoonDone+vocab.filter(v=>{let x=p(v.id);return x.morningDate===today()&&x.morningGrade&&x.morningGrade!=='easy'&&x.afternoonDate!==today()}).length;
   $('afternoonTotal').textContent=afternoonTotal;
   $('afternoonCompleted').textContent=`${afternoonDone} / ${afternoonTotal} completed`;
 }
@@ -123,7 +153,7 @@ function pushHistory(x,event,value,v){
   x.history.push({at:new Date().toISOString(),date:today(),session:event,value,term:v.term});
 }
 function gradeMorning(g){
-  let v=queue[idx],x=p(v.id);x.reviews++;x.last=today();x.morningGrade=g;x.morningDate=today();x.afternoonRetention='';x.afternoonDate='';pushHistory(x,'morning',g,v);
+  let v=queue[idx],x=p(v.id);if(!x.reviews)x.firstSeen=today();x.reviews++;x.last=today();x.morningGrade=g;x.morningDate=today();x.afternoonRetention='';x.afternoonDate='';pushHistory(x,'morning',g,v);
   const previous=Number(x.interval)||0;
   if(g==='again'||g==='hard'){
     x.interval=1;x.strength=g==='again'?0:1;
@@ -151,9 +181,9 @@ function renderResults(){let q=$('search').value.trim().toLowerCase(),f=$('filte
 $('morningBtn').onclick=()=>start('morning');$('afternoonBtn').onclick=()=>start('afternoon');$('browseBtn').onclick=browse;
 $('revealBtn').onclick=()=>{$('answer').classList.remove('hidden');$('ratings').classList.remove('hidden');$('revealBtn').classList.add('hidden')};$('speakBtn').onclick=speak;
 $('endBtn').onclick=()=>{$('session').classList.add('hidden');$('card').classList.remove('hidden');mode='';setActive('')};$('search').oninput=renderResults;$('filter').onchange=renderResults;
-$('settingsBtn').onclick=()=>{$('rate').value=settings.rate;$('newLimit').value=settings.newLimit;$('shuffleToggle').checked=settings.shuffle!==false;$('settings').showModal()};
-$('closeSettings').onclick=()=>{settings.rate=Number($('rate').value);settings.dailyLimit=40;settings.newLimit=Math.max(0,Math.min(dailyCap(),Number($('newLimit').value)||0));normalizeMorning();if(mode==='morning'){queue=sessions.morning.ids.map(id=>vocab.find(v=>v.id===id)).filter(Boolean);idx=sessions.morning.cursor;show();}settings.shuffle=$('shuffleToggle').checked;$('speakBtn').textContent=`🔊 ${settings.rate}×`;save();$('settings').close()};
-$('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify({version:1.7,exported:new Date().toISOString(),progress,settings,plan,sessions},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='fe-vocab-progress.json';a.click();URL.revokeObjectURL(a.href)};
+$('settingsBtn').onclick=()=>{$('rate').value=settings.rate;$('shuffleToggle').checked=settings.shuffle!==false;$('settings').showModal()};
+$('closeSettings').onclick=()=>{settings.rate=Number($('rate').value);settings.dailyLimit=40;normalizeMorning();if(mode==='morning'){queue=sessions.morning.ids.map(id=>vocab.find(v=>v.id===id)).filter(Boolean);idx=sessions.morning.cursor;show();}settings.shuffle=$('shuffleToggle').checked;$('speakBtn').textContent=`🔊 ${settings.rate}×`;save();$('settings').close()};
+$('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify({version:1.8,exported:new Date().toISOString(),progress,settings,plan,sessions},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='fe-vocab-progress.json';a.click();URL.revokeObjectURL(a.href)};
 $('importFile').onchange=async e=>{let j=JSON.parse(await e.target.files[0].text());if(j.progress){progress=j.progress;settings=Object.assign(settings,j.settings||{});if(j.plan)plan=j.plan;if(j.sessions)sessions=j.sessions;normalizeMorning();mode='';$('session').classList.add('hidden');save();alert('Progress imported.')}};
 $('startPlanBtn').onclick=()=>{if(plan&&plan.startDate){if(!confirm(`Study plan already started on ${plan.startDate}. Restart Day 1 today?`))return}plan={startDate:today(),startedAt:new Date().toISOString()};save();alert('Study plan started. Today is Day 1.')};
 $('resetBtn').onclick=()=>{if(confirm('Reset ALL study progress and study-plan Day count? Your 1008-word vocabulary will NOT be deleted.')){progress={};plan=null;sessions={};localStorage.removeItem(SESSIONKEY);localStorage.removeItem(KEY);localStorage.removeItem(PLANKEY);save();alert('Progress reset. Seen is back to 0. Start Study Plan when ready.')}};
