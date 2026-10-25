@@ -142,12 +142,13 @@ function bindRatings(){
   document.querySelectorAll('[data-retention]').forEach(b=>b.onclick=()=>gradeAfternoon(b.dataset.retention));
 }
 function show(){
+  if(window.FE_SPEECH)window.FE_SPEECH.stop();
   if(idx>=queue.length){$('sessionTitle').textContent='Session complete';$('sessionProgress').textContent=`${queue.length}/${queue.length}`;$('card').classList.add('hidden');$('ratings').classList.add('hidden');return}
   $('card').classList.remove('hidden');let v=queue[idx];$('sessionProgress').textContent=`${idx+1}/${queue.length}`;
   $('term').textContent=v.term;$('ipa').textContent=v.ipa;$('stress').textContent=v.stress?`Stress: ${v.stress}`:'';$('zh').textContent=v.zh;$('connection').textContent=v.connection;$('domain').textContent=v.domain;$('pool').textContent=v.pool.replace('_NOW','').replace('_NEXT','');$('source').textContent=`${v.source} · Handbook hits: ${v.hbHits}`;
   $('answer').classList.add('hidden');$('ratings').classList.add('hidden');$('ratings').innerHTML=ratingHTML();bindRatings();$('revealBtn').classList.remove('hidden');
 }
-function speak(){let v=queue[idx];if(!v)return;speechSynthesis.cancel();let u=new SpeechSynthesisUtterance(v.term);u.lang='en-US';u.rate=Number(settings.rate);let voices=speechSynthesis.getVoices();let voice=voices.find(x=>x.lang==='en-US')||voices.find(x=>x.lang.startsWith('en'));if(voice)u.voice=voice;speechSynthesis.speak(u)}
+function speak(){const v=queue[idx];if(v&&window.FE_SPEECH)window.FE_SPEECH.speak(v.term,settings.rate)}
 function pushHistory(x,event,value,v){
   x.history=Array.isArray(x.history)?x.history:[];
   x.history.push({at:new Date().toISOString(),date:today(),session:event,value,term:v.term});
@@ -180,7 +181,7 @@ function browse(){mode='browse';setActive('browse');$('session').classList.add('
 function renderResults(){let q=$('search').value.trim().toLowerCase(),f=$('filter').value;let arr=vocab.filter(v=>(f==='ALL'||v.pool===f)&&(!q||v.term.toLowerCase().includes(q)||v.zh.includes(q))).slice(0,100);$('results').innerHTML=arr.map(v=>`<div class="result"><b>${v.term}</b> <span>${v.ipa}</span><small>${v.zh} · ${v.domain} · ${v.pool}</small></div>`).join('')||'<p>No matches.</p>'}
 $('morningBtn').onclick=()=>start('morning');$('afternoonBtn').onclick=()=>start('afternoon');$('browseBtn').onclick=browse;
 $('revealBtn').onclick=()=>{$('answer').classList.remove('hidden');$('ratings').classList.remove('hidden');$('revealBtn').classList.add('hidden')};$('speakBtn').onclick=speak;
-$('endBtn').onclick=()=>{$('session').classList.add('hidden');$('card').classList.remove('hidden');mode='';setActive('')};$('search').oninput=renderResults;$('filter').onchange=renderResults;
+$('endBtn').onclick=()=>{if(window.FE_SPEECH)window.FE_SPEECH.stop();$('session').classList.add('hidden');$('card').classList.remove('hidden');mode='';setActive('')};$('search').oninput=renderResults;$('filter').onchange=renderResults;
 $('settingsBtn').onclick=()=>{$('rate').value=settings.rate;$('shuffleToggle').checked=settings.shuffle!==false;$('settings').showModal()};
 $('closeSettings').onclick=()=>{settings.rate=Number($('rate').value);settings.dailyLimit=40;normalizeMorning();if(mode==='morning'){queue=sessions.morning.ids.map(id=>vocab.find(v=>v.id===id)).filter(Boolean);idx=sessions.morning.cursor;show();}settings.shuffle=$('shuffleToggle').checked;$('speakBtn').textContent=`🔊 ${settings.rate}×`;save();$('settings').close()};
 $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify({version:1.8,exported:new Date().toISOString(),progress,settings,plan,sessions},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='fe-vocab-progress.json';a.click();URL.revokeObjectURL(a.href)};
