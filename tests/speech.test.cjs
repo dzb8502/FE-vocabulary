@@ -10,10 +10,12 @@ function setup(supported=true){
 let t=setup();t.window.FE_SPEECH.speak('parabola',.75);
 assert.equal(t.spoken.length,1);assert.equal(t.spoken[0].text,'parabola');assert.equal(t.spoken[0].rate,.75);assert.equal(t.synth.cancels,0);assert.equal(t.synth.paused,false);
 t.spoken[0].onstart();assert.equal(t.timers.size,0);t.spoken[0].onend();assert.equal(t.el.textContent,'');
-t.synth.voices=[{lang:'zh-CN'},{lang:'en-US',localService:true}];t.listeners.voiceschanged();t.window.FE_SPEECH.speak('focus',.75);assert.equal(t.spoken[1].voice,t.synth.voices[1]);
+t.synth.voices=[{lang:'zh-CN'},{lang:'en-US',localService:true}];t.listeners.voiceschanged();t.window.FE_SPEECH.speak('focus',.75,true);assert.equal(t.spoken[1].voice,t.synth.voices[1]);
 t.spoken[1].onerror({error:'voice-unavailable'});t.window.FE_SPEECH.speak('focus',.75);assert.equal(t.spoken[2].voice,undefined);assert.equal(t.spoken[2].lang,'en-US');
 const old=t.spoken[2];t.window.FE_SPEECH.speak('vertex',.75);const before=t.el.textContent;old.onerror({error:'canceled'});assert.equal(t.el.textContent,before);
-[...t.timers.values()][0]();assert.match(t.el.textContent,/未启动/);
+[...t.timers.values()][0]();assert.match(t.el.textContent,/没有响应/);
 t.document.hidden=true;t.listeners.visibilitychange();assert.equal(t.timers.size,0);
 t=setup(false);t.window.FE_SPEECH.speak('test',.75);assert.match(t.el.textContent,/不支持/);
 console.log('PASS: empty/delayed voices, resume, retained utterance, voice fallback, stale callbacks, timeout, unsupported browser');
+
+t=setup();t.window.FE_SPEECH.stop();t.window.FE_SPEECH.stop();assert.equal(t.synth.cancels,0);t.synth.paused=false;t.synth.voices=[{lang:'en-US',localService:true}];t.window.FE_SPEECH.speak('test',.75);assert.equal(t.synth.resumes,0);assert.equal(t.spoken[0].voice,undefined);assert.equal(t.el.textContent,'');console.log('PASS: card changes do not cancel idle speech; default voice is immediate without resume or loading UI');
