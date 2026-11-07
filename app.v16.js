@@ -168,6 +168,8 @@ function gradeMorning(g){
   }
   x.due=days(x.interval);
   progress[v.id]=x;save();advance();
+  // Advance first: rendering the next card must not cancel the just-rated word.
+  if(window.FE_SPEECH)window.FE_SPEECH.speak(v.term,settings.rate,{replay:true});
 }
 function gradeAfternoon(r){
   let v=queue[idx],x=p(v.id);x.reviews++;x.last=today();x.afternoonRetention=r;x.afternoonDate=today();pushHistory(x,'afternoon',r,v);
@@ -177,17 +179,17 @@ function gradeAfternoon(r){
   } // Knowing it in the afternoon confirms today's interval without advancing again.
   progress[v.id]=x;save();advance();
 }
-function browse(){mode='browse';setActive('browse');$('session').classList.add('hidden');$('browse').classList.remove('hidden');renderResults()}
+function browse(){if(window.FE_SPEECH)window.FE_SPEECH.stop();mode='browse';setActive('browse');$('session').classList.add('hidden');$('browse').classList.remove('hidden');renderResults()}
 function renderResults(){let q=$('search').value.trim().toLowerCase(),f=$('filter').value;let arr=vocab.filter(v=>(f==='ALL'||v.pool===f)&&(!q||v.term.toLowerCase().includes(q)||v.zh.includes(q))).slice(0,100);$('results').innerHTML=arr.map(v=>`<div class="result"><b>${v.term}</b> <span>${v.ipa}</span><small>${v.zh} · ${v.domain} · ${v.pool}</small></div>`).join('')||'<p>No matches.</p>'}
 $('morningBtn').onclick=()=>start('morning');$('afternoonBtn').onclick=()=>start('afternoon');$('browseBtn').onclick=browse;
-$('revealBtn').onclick=()=>{$('answer').classList.remove('hidden');$('ratings').classList.remove('hidden');$('revealBtn').classList.add('hidden')};$('speakBtn').onclick=speak;$('alternateSpeakBtn').onclick=()=>{const v=queue[idx];if(v&&window.FE_SPEECH)window.FE_SPEECH.speak(v.term,settings.rate,true)};
+$('revealBtn').onclick=()=>{$('answer').classList.remove('hidden');$('ratings').classList.remove('hidden');$('revealBtn').classList.add('hidden')};$('speakBtn').onclick=speak;
 $('endBtn').onclick=()=>{if(window.FE_SPEECH)window.FE_SPEECH.stop();$('session').classList.add('hidden');$('card').classList.remove('hidden');mode='';setActive('')};$('search').oninput=renderResults;$('filter').onchange=renderResults;
 $('settingsBtn').onclick=()=>{$('rate').value=settings.rate;$('shuffleToggle').checked=settings.shuffle!==false;$('settings').showModal()};
-$('closeSettings').onclick=()=>{settings.rate=Number($('rate').value);settings.dailyLimit=40;normalizeMorning();if(mode==='morning'){queue=sessions.morning.ids.map(id=>vocab.find(v=>v.id===id)).filter(Boolean);idx=sessions.morning.cursor;show();}settings.shuffle=$('shuffleToggle').checked;$('speakBtn').textContent=`🔊 ${settings.rate}×`;save();$('settings').close()};
+$('closeSettings').onclick=()=>{settings.rate=Number($('rate').value);settings.dailyLimit=40;normalizeMorning();if(mode==='morning'){queue=sessions.morning.ids.map(id=>vocab.find(v=>v.id===id)).filter(Boolean);idx=sessions.morning.cursor;show();}settings.shuffle=$('shuffleToggle').checked;$('speakBtn').textContent=`🔊 发音 ${settings.rate}×`;save();$('settings').close()};
 $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify({version:1.8,exported:new Date().toISOString(),progress,settings,plan,sessions},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='fe-vocab-progress.json';a.click();URL.revokeObjectURL(a.href)};
 $('importFile').onchange=async e=>{let j=JSON.parse(await e.target.files[0].text());if(j.progress){progress=j.progress;settings=Object.assign(settings,j.settings||{});if(j.plan)plan=j.plan;if(j.sessions)sessions=j.sessions;normalizeMorning();mode='';$('session').classList.add('hidden');save();alert('Progress imported.')}};
 $('startPlanBtn').onclick=()=>{if(plan&&plan.startDate){if(!confirm(`Study plan already started on ${plan.startDate}. Restart Day 1 today?`))return}plan={startDate:today(),startedAt:new Date().toISOString()};save();alert('Study plan started. Today is Day 1.')};
 $('resetBtn').onclick=()=>{if(confirm('Reset ALL study progress and study-plan Day count? Your 1008-word vocabulary will NOT be deleted.')){progress={};plan=null;sessions={};localStorage.removeItem(SESSIONKEY);localStorage.removeItem(KEY);localStorage.removeItem(PLANKEY);save();alert('Progress reset. Seen is back to 0. Start Study Plan when ready.')}};
 vocab=Array.isArray(window.FE_VOCAB)?window.FE_VOCAB:[];if(vocab.length!==1008){alert('Vocabulary bundle did not load correctly ('+vocab.length+'/1008).')}
-normalizeMorning();localStorage.setItem(SESSIONKEY,JSON.stringify(sessions));stats();countdown();renderPlan();$('speakBtn').textContent=`🔊 ${settings.rate}×`;$('browseBtn').textContent=`Browse ${vocab.length}`;setActive('');
+normalizeMorning();localStorage.setItem(SESSIONKEY,JSON.stringify(sessions));stats();countdown();renderPlan();$('speakBtn').textContent=`🔊 发音 ${settings.rate}×`;$('browseBtn').textContent=`Browse ${vocab.length}`;setActive('');
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));

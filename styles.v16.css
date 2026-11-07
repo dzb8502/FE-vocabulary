@@ -7,3 +7,8 @@
 #countdown{margin:2px 0}
 
 .todayPanel{gap:7px}.bigNumber{font-size:32px;font-weight:750}.bigNumber small{font-size:15px;font-weight:500}.progressTrack{height:8px;border-radius:9px;background:#e5e7eb;overflow:hidden;margin-top:6px}.progressTrack>div{height:100%;background:#111827;width:0%;transition:width .2s}.afternoonSummary{margin-top:12px;border-top:1px solid #e5e7eb;padding-top:12px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.toggleLine{display:flex;align-items:center;gap:10px;margin:10px 0}.toggleLine input{width:auto}#morningCompleted,#morningBreakdown,#afternoonCompleted{color:#6b7280;font-size:13px}
+
+/* Large, isolated pronunciation target for touch screens. */
+#speakBtn { min-width: 156px; min-height: 60px; padding: 14px 22px; font-size: 19px; font-weight: 700; border-radius: 14px; touch-action: manipulation; margin: 8px 0; }
+.pron { flex-wrap: wrap; gap: 12px; }
+#speechStatus { min-height: 20px; }

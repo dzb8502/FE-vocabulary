@@ -44,3 +44,19 @@ assert.equal(run('sessions.morning.ids.length'),40);
 run("sessions={};progress={1:{reviews:1,due:today(),interval:1,morningGrade:'hard'},2:{reviews:1,due:today(),interval:30,morningGrade:'easy'}}");
 assert.equal(run('morningSelection().reviews[0].id'),1);
 console.log('PASS: new-word reservation, remaining fewer than five, no unseen words, Hard priority, Easy excluded');
+// A rating renders the next card before replaying the word that was just graded.
+run("window.calls=[];window.FE_SPEECH={stop(){window.calls.push('stop')},speak(t,r,o){window.calls.push({t,r,replay:o&&o.replay})}};");
+for(const grade of ['hard','good','easy']){
+ run(`window.calls=[];sessions={};progress={};queue=[vocab[0],vocab[1]];idx=0;mode='morning';gradeMorning('${grade}')`);
+ assert.equal(run('idx'),1);
+ assert.equal(run('window.calls[0]'),'stop');
+ assert.equal(run('window.calls[1].t'),'word0');
+ assert.equal(run('window.calls[1].replay'),true);
+ assert.equal(run('progress[1].reviews'),1);
+}
+run("window.calls=[];queue=[vocab[0]];idx=0;mode='morning';gradeMorning('good')");
+assert.equal(run('window.calls[1].t'),'word0'); // last card also replays
+run("window.calls=[];queue=[vocab[0]];idx=0;mode='afternoon';gradeAfternoon('know')");
+assert.equal(run('window.calls.length'),1); // afternoon does not replay
+assert.equal(fs.readFileSync('index.html','utf8').includes('alternateSpeakBtn'),false);
+console.log('PASS: Hard/Good/Easy replay the rated word after render, final card, no afternoon replay, alternate button removed');
