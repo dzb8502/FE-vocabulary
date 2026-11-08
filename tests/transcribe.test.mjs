@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {stamp,normalize,exportText,validateBackup,analysisText} from '../transcribe/core.mjs';
+import {stamp,normalize,exportText,validateBackup,analysisText,appendPart,quiet} from '../transcribe/core.mjs';
 test('timestamp rounding carries to next hour',()=>assert.equal(stamp(3599.9999,true),'01:00:00,000'));
 test('missing end timestamps resolve to audio duration',()=>assert.deepEqual(normalize({chunks:[{text:' hello ',timestamp:[1,null]}]},11),[{start:1,end:11,text:'hello',speaker:''}])) ;
 test('invalid timestamps are clamped and empty speech omitted',()=>assert.deepEqual(normalize({chunks:[{text:'',timestamp:[0,1]},{text:'a',timestamp:[-2,30]}]},10),[{start:0,end:10,text:'a',speaker:''}])) ;
@@ -13,3 +13,6 @@ test('vocabulary worker preserves unrelated model and app caches',async()=>{let 
 test('vocabulary worker leaves transcription routes and third-party requests alone',()=>{let handler;const self={addEventListener:(event,fn)=>{if(event==='fetch')handler=fn;},registration:{scope:'https://example.test/FE-vocabulary/'}};vm.runInNewContext(readFileSync(new URL('../sw.js',import.meta.url),'utf8'),{self,URL,location:{origin:'https://example.test'}});for(const url of ['https://example.test/FE-vocabulary/transcribe/','https://huggingface.co/model'])handler({request:{method:'GET',url},respondWith:()=>assert.fail('intercepted')});});
 
 test('ChatGPT handoff includes complete edited transcript and review guidance',()=>{const text=analysisText({title:'Meeting',rows:[{start:12,end:15,text:'Confirmed task',speaker:'Kevin'}]});assert.match(text,/00:00:12/);assert.match(text,/Kevin: Confirmed task/);assert.match(text,/未明确/);assert.match(text,/需回听核对/);});
+
+test('65 minute checkpoints survive restore without duplicate offsets',()=>{let record={rows:[],processedSeconds:0};for(let i=0;i<65;i++){record=JSON.parse(JSON.stringify(record));record=appendPart(record,{text:'minute '+i,chunks:[{text:'minute '+i,timestamp:[1,59]}]},i*60,(i+1)*60);}assert.equal(record.processedSeconds,3900);assert.equal(record.rows.length,65);assert.equal(record.rows[64].start,3841);assert.throws(()=>appendPart(record,{text:'duplicate'},3840,3900));});
+test('silence skipped but low volume speech retained',()=>{assert.equal(quiet(new Float32Array(16000)),true);assert.equal(quiet(new Float32Array(16000).fill(.001)),false);});
