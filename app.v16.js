@@ -1,5 +1,7 @@
 const EXAM=new Date('2027-02-16T08:00:00');
 const KEY='fe_vocab_progress_v1', SETKEY='fe_vocab_settings_v1', PLANKEY='fe_vocab_plan_v1', SESSIONKEY='fe_vocab_sessions_v16';
+const CUSTOMKEY='fe_vocab_custom_words_v1';
+let customWords=JSON.parse(localStorage.getItem(CUSTOMKEY)||'[]');
 let vocab=[], queue=[], idx=0, mode='';
 let progress=JSON.parse(localStorage.getItem(KEY)||'{}');
 let settings=Object.assign({rate:.75,newLimit:10,dailyLimit:40,shuffle:true},JSON.parse(localStorage.getItem(SETKEY)||'{}'));
@@ -13,7 +15,7 @@ function p(id){
   const old=progress[id]||{};
   return Object.assign({reviews:0,interval:0,due:'',last:'',strength:0,morningGrade:'',morningDate:'',afternoonRetention:'',afternoonDate:'',history:[],custom:false},old);
 }
-function save(){localStorage.setItem(SESSIONKEY,JSON.stringify(sessions));localStorage.setItem(KEY,JSON.stringify(progress));localStorage.setItem(SETKEY,JSON.stringify(settings));localStorage.setItem(PLANKEY,JSON.stringify(plan));stats();renderPlan()}
+function save(){localStorage.setItem(CUSTOMKEY,JSON.stringify(customWords));localStorage.setItem(SESSIONKEY,JSON.stringify(sessions));localStorage.setItem(KEY,JSON.stringify(progress));localStorage.setItem(SETKEY,JSON.stringify(settings));localStorage.setItem(PLANKEY,JSON.stringify(plan));stats();renderPlan()}
 function localDate(d=new Date()){let y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`}
 function calendarDiff(a,b){let A=new Date(a+'T12:00:00'),B=new Date(b+'T12:00:00');return Math.floor((B-A)/86400000)}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const r=new Uint32Array(1);crypto.getRandomValues(r);let k=r[0]%(i+1);[a[i],a[k]]=[a[k],a[i]]}return a}
@@ -81,7 +83,7 @@ function getAfternoonSession(){
   let s=sessions.afternoon;
   if(!s||s.date!==today())s={date:today(),ids:[],cursor:0};
   const done=[...new Set(s.ids.slice(0,s.cursor))];
-  const selected=vocab.filter(v=>{let x=p(v.id);return x.morningDate===today()&&x.morningGrade&&x.morningGrade!=='easy'&&x.afternoonDate!==today()});
+  const selected=vocab.filter(v=>{let x=p(v.id);return (x.morningDate===today()||x.manualHardDate===today())&&x.morningGrade&&x.morningGrade!=='easy'&&x.afternoonDate!==today()});
   const pending=selected.map(v=>v.id).filter(id=>!done.includes(id));
   s.ids=[...done,...(settings.shuffle?shuffle(pending):pending)];s.cursor=done.length;
   sessions.afternoon=s;save();return s;
@@ -107,7 +109,7 @@ function renderPlan(){
   $('morningBar').style.width=total?`${100*completed/total}%`:'0%';
   const afternoon=sessions.afternoon&&sessions.afternoon.date===today()?sessions.afternoon:null;
   const afternoonDone=afternoon?Math.min(afternoon.cursor,afternoon.ids.length):0;
-  const afternoonTotal=afternoonDone+vocab.filter(v=>{let x=p(v.id);return x.morningDate===today()&&x.morningGrade&&x.morningGrade!=='easy'&&x.afternoonDate!==today()}).length;
+  const afternoonTotal=afternoonDone+vocab.filter(v=>{let x=p(v.id);return (x.morningDate===today()||x.manualHardDate===today())&&x.morningGrade&&x.morningGrade!=='easy'&&x.afternoonDate!==today()}).length;
   $('afternoonTotal').textContent=afternoonTotal;
   $('afternoonCompleted').textContent=`${afternoonDone} / ${afternoonTotal} completed`;
 }
@@ -118,7 +120,7 @@ function stats(){
   $('dueCount').textContent=vocab.filter(v=>{let x=p(v.id);return x.reviews>0&&x.due&&x.due<=today()}).length;
 }
 function countdown(){let n=Math.max(0,Math.ceil((EXAM-new Date())/86400000));$('countdown').textContent=`${n} days to FE Other Disciplines · Feb 16, 2027`}
-function orderNew(a,b){let rank={CORE_NOW:0,SUPPORT_NEXT:1,DEFER_OPTIONAL:2};return rank[a.pool]-rank[b.pool]||a.id-b.id}
+function orderNew(a,b){let rank={CORE_NOW:0,SUPPORT_NEXT:1,DEFER_OPTIONAL:2};return rank[a.pool]-rank[b.pool]||((Number(a.id)-Number(b.id))||a.term.localeCompare(b.term))}
 function setActive(which){
   ['morningBtn','afternoonBtn','browseBtn'].forEach(id=>$(id).classList.remove('primary'));
   if(which==='morning')$('morningBtn').classList.add('primary');
@@ -180,16 +182,80 @@ function gradeAfternoon(r){
   progress[v.id]=x;save();advance();
 }
 function browse(){if(window.FE_SPEECH)window.FE_SPEECH.stop();mode='browse';setActive('browse');$('session').classList.add('hidden');$('browse').classList.remove('hidden');renderResults()}
-function renderResults(){let q=$('search').value.trim().toLowerCase(),f=$('filter').value;let arr=vocab.filter(v=>(f==='ALL'||v.pool===f)&&(!q||v.term.toLowerCase().includes(q)||v.zh.includes(q))).slice(0,100);$('results').innerHTML=arr.map(v=>`<div class="result"><b>${v.term}</b> <span>${v.ipa}</span><small>${v.zh} · ${v.domain} · ${v.pool}</small></div>`).join('')||'<p>No matches.</p>'}
+function renderResults(){
+ const q=$('search').value.trim().toLowerCase(),f=$('filter').value;
+ const arr=vocab.filter(v=>(f==='ALL'||v.pool===f)&&(!q||v.term.toLowerCase().includes(q)||v.zh.includes(q))).slice(0,100);
+ $('results').replaceChildren(...arr.map(v=>{const row=document.createElement('div');row.className='result';const title=document.createElement('b'),ipa=document.createElement('span'),meaning=document.createElement('small');title.textContent=v.term;ipa.textContent=' '+v.ipa;meaning.textContent=v.zh+' · '+v.domain+' · '+v.pool;row.append(title,ipa,meaning);return row}));
+ if(!arr.length)$('results').textContent='No matches.';
+}
+
 $('morningBtn').onclick=()=>start('morning');$('afternoonBtn').onclick=()=>start('afternoon');$('browseBtn').onclick=browse;
 $('revealBtn').onclick=()=>{$('answer').classList.remove('hidden');$('ratings').classList.remove('hidden');$('revealBtn').classList.add('hidden')};$('speakBtn').onclick=speak;
 $('endBtn').onclick=()=>{if(window.FE_SPEECH)window.FE_SPEECH.stop();$('session').classList.add('hidden');$('card').classList.remove('hidden');mode='';setActive('')};$('search').oninput=renderResults;$('filter').onchange=renderResults;
 $('settingsBtn').onclick=()=>{$('rate').value=settings.rate;$('shuffleToggle').checked=settings.shuffle!==false;$('settings').showModal()};
 $('closeSettings').onclick=()=>{settings.rate=Number($('rate').value);settings.dailyLimit=40;normalizeMorning();if(mode==='morning'){queue=sessions.morning.ids.map(id=>vocab.find(v=>v.id===id)).filter(Boolean);idx=sessions.morning.cursor;show();}settings.shuffle=$('shuffleToggle').checked;$('speakBtn').textContent=`🔊 发音 ${settings.rate}×`;save();$('settings').close()};
-$('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify({version:1.8,exported:new Date().toISOString(),progress,settings,plan,sessions},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='fe-vocab-progress.json';a.click();URL.revokeObjectURL(a.href)};
-$('importFile').onchange=async e=>{let j=JSON.parse(await e.target.files[0].text());if(j.progress){progress=j.progress;settings=Object.assign(settings,j.settings||{});if(j.plan)plan=j.plan;if(j.sessions)sessions=j.sessions;normalizeMorning();mode='';$('session').classList.add('hidden');save();alert('Progress imported.')}};
+$('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify({version:1.12,customWords,exported:new Date().toISOString(),progress,settings,plan,sessions},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='fe-vocab-progress.json';a.click();URL.revokeObjectURL(a.href)};
+$('importFile').onchange=async e=>{let j=JSON.parse(await e.target.files[0].text());if(j.progress){if(j.customWords!==undefined){if(!Array.isArray(j.customWords)||j.customWords.some(v=>!v||typeof v.id!=='string'||!v.id.startsWith('custom_')||typeof v.term!=='string'||!v.term.trim()||typeof v.zh!=='string')){alert('Invalid custom word data. Nothing imported.');return;}customWords=j.customWords;rebuildVocabulary();}progress=j.progress;settings=Object.assign(settings,j.settings||{});if(j.plan)plan=j.plan;if(j.sessions)sessions=j.sessions;normalizeMorning();mode='';$('session').classList.add('hidden');save();alert('Progress imported.')}};
 $('startPlanBtn').onclick=()=>{if(plan&&plan.startDate){if(!confirm(`Study plan already started on ${plan.startDate}. Restart Day 1 today?`))return}plan={startDate:today(),startedAt:new Date().toISOString()};save();alert('Study plan started. Today is Day 1.')};
-$('resetBtn').onclick=()=>{if(confirm('Reset ALL study progress and study-plan Day count? Your 1008-word vocabulary will NOT be deleted.')){progress={};plan=null;sessions={};localStorage.removeItem(SESSIONKEY);localStorage.removeItem(KEY);localStorage.removeItem(PLANKEY);save();alert('Progress reset. Seen is back to 0. Start Study Plan when ready.')}};
-vocab=Array.isArray(window.FE_VOCAB)?window.FE_VOCAB:[];if(vocab.length!==1008){alert('Vocabulary bundle did not load correctly ('+vocab.length+'/1008).')}
-normalizeMorning();localStorage.setItem(SESSIONKEY,JSON.stringify(sessions));stats();countdown();renderPlan();$('speakBtn').textContent=`🔊 发音 ${settings.rate}×`;$('browseBtn').textContent=`Browse ${vocab.length}`;setActive('');
+$('resetBtn').onclick=()=>{if(confirm('Reset ALL study progress and study-plan Day count? Your built-in and added vocabulary will NOT be deleted.')){progress={};plan=null;sessions={};localStorage.removeItem(SESSIONKEY);localStorage.removeItem(KEY);localStorage.removeItem(PLANKEY);save();alert('Progress reset. Seen is back to 0. Start Study Plan when ready.')}};
+
+function normalizeTerm(term){return String(term).normalize('NFKC').trim().toLowerCase().replace(/[’‘]/g,"'").replace(/[‐‑–—]/g,'-').replace(/\s+/g,' ')}
+function rebuildVocabulary(){
+ const base=Array.isArray(window.FE_VOCAB)?window.FE_VOCAB:[];
+ const terms=new Set(base.map(v=>normalizeTerm(v.term))),ids=new Set(base.map(v=>String(v.id)));
+ vocab=[...base];customWords=customWords.filter(v=>{
+  if(!v||typeof v.term!=='string'||!v.term.trim()||terms.has(normalizeTerm(v.term))||ids.has(String(v.id)))return false;
+  terms.add(normalizeTerm(v.term));ids.add(String(v.id));vocab.push(Object.assign({ipa:'',stress:'',domain:'Reading notes',connection:'',pool:'CORE_NOW',source:'PERSONAL_READING',hbHits:0},v));return true;
+ });
+}
+function findWord(term){return vocab.find(v=>normalizeTerm(v.term)===normalizeTerm(term))}
+function refreshAddedQueue(){
+ // Remove an already marked word from today's pending morning queue, not its history.
+ normalizeMorning();
+ if(mode==='morning'||mode==='afternoon'){
+  const s=mode==='morning'?sessions.morning:getAfternoonSession();
+  if(s&&s.date===today()){queue=s.ids.map(id=>vocab.find(v=>v.id===id)).filter(Boolean);idx=s.cursor;show();}
+ }
+ $('browseBtn').textContent='Browse '+vocab.length;if(mode==='browse')renderResults();
+}
+function addReadingWord(term,meaning=''){
+ term=String(term).normalize('NFKC').trim().replace(/\s+/g,' ');
+ if(!term||term.length>120)throw new Error('请输入1–120个字符的单词或词组。');
+ if(meaning.length>300)throw new Error('释义请控制在300个字符以内。');
+ let v=findWord(term),existed=Boolean(v);
+ if(!v){v={id:'custom_'+crypto.randomUUID(),term,zh:meaning.trim()||'待补充释义',ipa:'',stress:'',domain:'Reading notes',connection:'看书时加入的生词',pool:'CORE_NOW',source:'PERSONAL_READING',hbHits:0};customWords.push(v);vocab.push(v);}
+ const x=p(v.id);
+ // Repeated submission on the same day must not inflate review counts/history.
+ if(!(x.manualHardDate===today()&&x.morningGrade==='hard'&&x.interval===1&&x.afternoonDate!==today())){
+  if(!x.reviews)x.firstSeen=today();
+  x.reviews++;x.last=today();x.morningGrade='hard';x.interval=1;x.strength=1;x.due=days(1);
+  x.manualHardDate=today();x.afternoonDate='';x.afternoonRetention='';pushHistory(x,'reading','hard',v);progress[v.id]=x;
+ }
+ const m=sessions.morning;
+ if(m&&m.date===today()){
+  const done=m.ids.slice(0,m.cursor),pending=m.ids.slice(m.cursor).filter(id=>id!==v.id);
+  m.ids=[...done,...pending];m.newIds=(m.newIds||[]).filter(id=>id!==v.id||done.includes(id));
+ }
+ const a=sessions.afternoon;
+ if(a&&a.date===today()){
+  const done=a.ids.slice(0,a.cursor).filter(id=>id!==v.id),pending=a.ids.slice(a.cursor).filter(id=>id!==v.id);
+  a.ids=[...done,...pending];a.cursor=done.length;
+ }
+ refreshAddedQueue();save();return {word:v,existed};
+}
+function previewAddedWord(){
+ const v=findWord($('newWordTerm').value);
+ $('newWordMeaning').disabled=Boolean(v);
+ $('wordMatch').textContent=v?'词库已有：'+v.term+' · '+v.zh+'。将使用原记录并标为 Hard，不重复添加。':'词库中没有完全匹配项，将新增为 Hard。大小写、首尾空格和连续空格不影响匹配。';
+ $('saveWordBtn').textContent=v?'使用原词并设为 Hard':'加入并设为 Hard';
+}
+function initAddWord(){
+ $('addWordBtn').onclick=()=>{if(window.FE_SPEECH)window.FE_SPEECH.stop();$('newWordTerm').value='';$('newWordMeaning').value='';$('wordMatch').textContent='输入单词后会检查整个词库，包括尚未学到的词。';$('newWordMeaning').disabled=false;$('saveWordBtn').textContent='加入并设为 Hard';$('addWordDialog').showModal();$('newWordTerm').focus();};
+ $('newWordTerm').oninput=previewAddedWord;
+ $('cancelWordBtn').onclick=()=>$('addWordDialog').close();
+ $('addWordForm').onsubmit=e=>{e.preventDefault();try{const result=addReadingWord($('newWordTerm').value,$('newWordMeaning').value);$('addWordDialog').close();$('addWordStatus').textContent=(result.existed?'已使用原词记录：':'已加入生词：')+result.word.term+' · Hard · 今天下午复习，明天再复习。';}catch(err){$('wordMatch').textContent='未能完成保存：'+err.message;}};
+}
+rebuildVocabulary();if(!Array.isArray(window.FE_VOCAB)||window.FE_VOCAB.length!==1008){alert('Vocabulary bundle did not load correctly ('+vocab.length+'/1008).')}
+initAddWord();normalizeMorning();localStorage.setItem(SESSIONKEY,JSON.stringify(sessions));stats();countdown();renderPlan();$('speakBtn').textContent=`🔊 发音 ${settings.rate}×`;$('browseBtn').textContent=`Browse ${vocab.length}`;setActive('');
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));
+
